@@ -1,6 +1,7 @@
 #include <stdio.h>
 #include <unistd.h>
 #include <sys/types.h>
+#include <stdlib.h>
 
 int main()
 {
@@ -11,7 +12,7 @@ int main()
     if (pid < 0)
     {
         perror("fork error");
-        return 0;
+        _exit(0);
     }
     if (pid == 0)
     {
@@ -20,23 +21,36 @@ int main()
         printf("nums:%d\n", num);
 
         /* 子进程中 */
-        pid_t childPid = getid();
+        pid_t childPid = getpid();
         printf("childPid:%d\n", childPid);
 
         pid_t parentPid = getppid();
-        printf("parentPid process:%d\n", parentPid);
+        printf("child process:%d\n", parentPid);
+
+        while (1)
+        {
+            sleep(3);
+        }
         
     }
     else if (pid > 0)
     {
         printf("nums:%d\n", num);
         /* 此时是父进程 */
-        pid_t parentPid = getid();
+        pid_t parentPid = getpid();
         printf("parentPid process:%d\n", parentPid);
 
         num = 400;
         printf("nums:%d\n", num);
+
+        while (1)
+        {
+            sleep(3);
+        }
     }
+
+    /* 父子进程都会到达这个地方 */
+    printf("hello world\n");
 
     return 0;
 }
