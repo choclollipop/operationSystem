@@ -44,7 +44,7 @@ static int threadExitClrResources(threadpool_t *pool)
 static void * threadHander(void * arg)
 {
     threadpool_t *pool = (threadpool_t *)arg;
-    while (pool->queueSize == 0 && pool->shoutDown != 0)
+    while (1)
     {
         pthread_mutex_lock(&(pool->mutex_pool));
         while (pool->queueSize == 0)
@@ -60,11 +60,11 @@ static void * threadHander(void * arg)
                     threadExitClrResources(pool);
                 }
             }
-        }
 
-        if (pool->shoutDown)
-        {
-            threadExitClrResources(pool);
+            if (pool->shoutDown)
+            {
+                threadExitClrResources(pool);
+            }
         }
 
         /* 任务队列一定有任务 */
@@ -93,6 +93,7 @@ static void * threadHander(void * arg)
 static void * managerHander(void * arg)
 {
     threadpool_t *pool = (threadpool_t *)arg;
+    int flag = 0;
 
     while (pool->shoutDown == 0)
     {
@@ -110,11 +111,12 @@ static void * managerHander(void * arg)
 
         /* 增加线程数（上限：maxThreads） */
         /* 任务数 > 存活线程数 && 存活线程数 < maxThreads */
+        int ret = 0;
+        int count = 0;
         if (taskNum > liveNum && liveNum < pool->maxThreads)
         {
-            int count = 0;
+            
             /* 一次扩3个 */
-            int ret = 0;
             for (int idx = 0; idx < pool->maxThreads && count < DEFAULT_VARY_THREADS && liveNum <= pool->maxThreads; idx++)
             {
                 if (pool->thredIds[idx] == 0)
@@ -123,7 +125,7 @@ static void * managerHander(void * arg)
                     if (ret != 0)
                     {
                         perror("thread creat error");
-                        /* todo ....*/
+                        break;
                     }
                     count++;
                     pthread_mutex_lock(&pool->mutex_pool);
@@ -131,6 +133,12 @@ static void * managerHander(void * arg)
                     pthread_mutex_unlock(&pool->mutex_pool);
                 }
             }
+        }
+
+        if (ret != 0)
+        {
+            flag = 1;
+            break;
         }
 
         /* 减少线程数（下限：minThreads） */
@@ -149,7 +157,16 @@ static void * managerHander(void * arg)
         }
     }
 
-    /*todo... 销毁线程池内所有东西 */
+    /* 销毁线程池内所有东西 */
+    if (flag)
+    {
+        threadpoolDestroy(pool);
+    }
+
+    if (pool->shoutDown == 1)
+    {
+        pthread_cancel(pthread_self());
+    }
 }
 
 /* 线程池的初始化 */
@@ -321,7 +338,23 @@ int threadpoolDestroy(threadpool_t *pool)
     pthread_cond_broadcast(&pool->notEmpty);
 
     /* 回收资源 */
-    
+    pthread_mutex_destroy(&pool->mutex_busyThread);
+    pthread_mutex_destroy(&pool->mutex_pool);
+
+    pthread_cond_destroy(&pool->notEmpty);
+    pthread_cond_destroy(&pool->notFull);
+
+    if (pool->thredIds)
+    {
+        free(pool->thredIds);
+        pool->thredIds = NULL;
+    }
+
+    if (pool->taskQueue)
+    {
+        free(pool->taskQueue);
+        pool->taskQueue = NULL;
+    }
 
     return ON_SUCCESS;
 }
