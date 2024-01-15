@@ -17,9 +17,38 @@ enum STATUS_CODE
     UNKNOWN_ERROR,
 };
 
+/* 本质是一个消费者 */
 void * threadHander(void * arg)
 {
+    threadpool_t *pool = (threadpool_t *)arg;
+    while (1)
+    {
+        pthread_mutex_lock(&(pool->mutex_pool));
+        while (pool->queueSize == 0)
+        {
+            /* 等待条件变量，生产者发送 */
+            pthread_cond_wait(&(pool->notEmpty), &(pool->mutex_pool));
+        }
 
+        /* 任务队列一定有任务 */
+        task_t tmpTask = pool->taskQueue[pool->queueFront];
+        pool->queueFront = (pool->queueFront + 1) % pool->queueCapacity;
+        pool->queueSize--;
+
+        pthread_mutex_unlock(&(pool->mutex_pool));
+        pthread_cond_signal(&(pool->notFull));
+
+        pthread_mutex_lock(&(pool->mutex_busyThread));
+        pool->busyThreadNums++;
+        pthread_mutex_unlock(&(pool->mutex_busyThread));
+
+        /* 执行钩子 */
+        tmpTask.work_hander(tmpTask.arg);
+
+        pthread_mutex_lock(&(pool->mutex_busyThread));
+        pool->busyThreadNums--;
+        pthread_mutex_unlock(&(pool->mutex_busyThread));
+    }
     pthread_exit(NULL);
 }
 
@@ -42,6 +71,8 @@ int threadpoolInit(threadpool_t *pool, int minThreads, int maxThreads, int queue
         /* 更新线程池属性 */
         pool->maxThreads = maxThreads;
         pool->minThreads = minThreads;
+
+        pool->busyThreadNums = 0;
 
         if (queueCapacity <= 0)
         {
@@ -75,19 +106,33 @@ int threadpoolInit(threadpool_t *pool, int minThreads, int maxThreads, int queue
         {
             if (pool->thredIds[idx] == 0)
             {
-                ret = pthread_create(&pool->thredIds[idx], NULL, threadHander, NULL);
+                ret = pthread_create(&pool->thredIds[idx], NULL, threadHander, (void *)pool);
                 if (ret != 0)
                 {
                     perror("pthread_create error");
                     break;
                 }
-            } 
+            }
         }
         /* 创建线程函数的返回值，若不为0，即此时创建的线程出错 */
         if (ret != 0)
         {
             break;
         }
+
+        pool->liveThreadNums = pool->minThreads;
+
+        /* 初始化锁资源 */
+        pthread_mutex_init(&(pool->mutex_pool), NULL);
+        pthread_mutex_init(&(pool->mutex_busyThread), NULL);
+
+        /* 初始化条件变量 */
+        if (pthread_cond_init(&(pool->notEmpty), NULL) != 0 || pthread_cond_init(&(pool->notFull), NULL) != 0)
+        {
+            perror("thread cond error");
+            break;
+        }
+        
 
         return ON_SUCCESS;
 
@@ -117,7 +162,41 @@ int threadpoolInit(threadpool_t *pool, int minThreads, int maxThreads, int queue
         pool->thredIds = NULL;
     }
 
+    /* 释放锁和条件变量资源 */
+    pthread_mutex_destroy(&pool->mutex_busyThread);
+    pthread_mutex_destroy(&pool->mutex_pool);
+
+    pthread_cond_destroy(&pool->notEmpty);
+    pthread_cond_destroy(&pool->notFull);
+
     return UNKNOWN_ERROR;
+}
+
+/* 线程池添加任务 */
+int threadPoolAddTask(threadpool_t * pool, void *(*work_hander)(void *), void * arg)
+{
+    if (!pool)
+    {
+        return NULL_PTR;
+    }
+
+    pthread_mutex_lock(&pool->mutex_pool);
+
+    while (pool->queueSize == pool->queueCapacity)
+    {
+        pthread_cond_wait(&pool->notFull, &pool->mutex_pool);
+    }
+
+    /* 可以开始放数据 */
+    pool->taskQueue[pool->queueRear].work_hander = work_hander;
+    pool->taskQueue[pool->queueRear].arg = arg;
+    pool->queueRear = (pool->queueRear + 1) % pool->queueCapacity;
+    pool->queueSize++;
+
+    pthread_mutex_unlock(&pool->mutex_pool);
+    pthread_cond_signal(&pool->notEmpty);
+
+    return ON_SUCCESS;
 }
 
 /* 线程池的销毁 */
