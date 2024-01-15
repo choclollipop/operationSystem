@@ -26,6 +26,9 @@ typedef struct threadpool_t
 
     /* 线程池中的线程id */
     pthread_t * thredIds;
+    /* 线程池中的管理线程 */
+    pthread_t managerThread;
+
     /* 最小的线程数 */
     int minThreads;
     /* 最大的线程数 */
@@ -42,6 +45,11 @@ typedef struct threadpool_t
     pthread_cond_t notEmpty;
     /* 任务队列不满，可以继续存放任务 */
     pthread_cond_t notFull;
+
+    int exitNums;
+
+    /* 关闭线程池 */
+    int shoutDown;
 } threadpool_t;
 
 /* 线程池的初始化 */
