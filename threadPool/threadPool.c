@@ -47,7 +47,7 @@ static void * threadHander(void * arg)
     while (1)
     {
         pthread_mutex_lock(&(pool->mutex_pool));
-        while (pool->queueSize == 0)
+        while (pool->queueSize == 0 && pool->shoutDown == 0)
         {
             /* 等待条件变量，生产者发送 */
             pthread_cond_wait(&(pool->notEmpty), &(pool->mutex_pool));
@@ -57,14 +57,18 @@ static void * threadHander(void * arg)
                 pool->exitNums--;
                 if (pool->liveThreadNums > pool->minThreads)
                 {
+                    pool->liveThreadNums--;
                     threadExitClrResources(pool);
                 }
             }
 
-            if (pool->shoutDown)
-            {
-                threadExitClrResources(pool);
-            }
+            
+        }
+
+        if (pool->shoutDown)
+        {
+            pthread_mutex_unlock(&pool->mutex_pool);
+            threadExitClrResources(pool);
         }
 
         /* 任务队列一定有任务 */
@@ -143,7 +147,7 @@ static void * managerHander(void * arg)
 
         /* 减少线程数（下限：minThreads） */
         /* 忙碌线程数 * 2 < 存活线程数  && 存活线程数 > minThreads*/
-        if ((busyNum >> 1) < liveNum && liveNum > pool->minThreads)
+        if ((busyNum << 1) < liveNum && liveNum > pool->minThreads)
         {
             pthread_mutex_lock(&pool->mutex_pool);
 

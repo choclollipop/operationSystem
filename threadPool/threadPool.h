@@ -46,6 +46,7 @@ typedef struct threadpool_t
     /* 任务队列不满，可以继续存放任务 */
     pthread_cond_t notFull;
 
+    /* 销毁的线程数 */
     int exitNums;
 
     /* 关闭线程池 */
